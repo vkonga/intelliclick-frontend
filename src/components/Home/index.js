@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
-import Autocomplete from 'react-autocomplete';
+import Autosuggest from 'react-autosuggest';
+
 import './index.css';
 
 class Home extends Component {
@@ -22,7 +23,7 @@ class Home extends Component {
       order: 'asc'
     },
     weatherData: {},
-    errorMsg:""
+    errorMsg: ""
   };
 
   componentDidMount() {
@@ -54,28 +55,30 @@ class Home extends Component {
           countryCode: each.country_code
         }));
 
-    
-        await this.fetchWeatherData(addNewCities);
+        // Fetch weather data for new cities and update state accordingly
+        this.fetchWeatherData(addNewCities).then(() => {
+          this.setState(prevState => ({
+            citiesList: [...prevState.citiesList, ...addNewCities],
+            filteredCities: this.applyFilters([...prevState.citiesList, ...addNewCities]),
+            page: prevState.page + 1,
+            hasMore: data.results.length > 0,
+            loading: false,
+            errorMsg: ""
+          }));
+        });
 
-        this.setState(prevState => ({
-          citiesList: [...prevState.citiesList, ...addNewCities],
-          filteredCities: this.applyFilters([...prevState.citiesList, ...addNewCities]),
-          page: prevState.page + 1,
-          hasMore: data.results.length > 0,
-          loading: false,errorMsg:""
-        }));
       }
     } catch (error) {
-        
-      this.setState({ loading: false,errorMsg:"Page Not Found Try again and Check fetching url" });
+      this.setState({ loading: false, errorMsg: "Page Not Found. Try again and check fetching URL." });
     }
   };
 
   fetchWeatherData = async (cities) => {
     const apiKey = '669971031d686e6634103c148c50a257';
-    const weatherData = {};
+    const weatherData = { ...this.state.weatherData };
 
-    for (const city of cities) {
+    // Fetch weather data for each city and update the state
+    await Promise.all(cities.map(async (city) => {
       const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city.name)}&units=metric&appid=${apiKey}`;
       try {
         const response = await fetch(url);
@@ -88,9 +91,9 @@ class Home extends Component {
           };
         }
       } catch (error) {
-        console.log("Error fetching")
+        console.log("Error fetching weather data");
       }
-    }
+    }));
 
     this.setState({ weatherData });
   };
@@ -104,27 +107,36 @@ class Home extends Component {
     }
   };
 
-  onChangeSearch = (event, value) => {
+  onChangeSearch = (event, { newValue }) => {
     this.setState({
-      searchTerm: value,
+      searchTerm: newValue,
       filters: {
         ...this.state.filters,
-        name: value,
-        country: value
+        name: newValue,
+        country: newValue
       }
     }, this.applyFiltersAndSort);
   };
 
-  onSelectFilter = (value) => {
-    this.setState({
-      searchTerm: value,
-      filters: {
-        ...this.state.filters,
-        name: value,
-        country: value
-      }
-    }, this.applyFiltersAndSort);
+  onSuggestionsFetchRequested = ({ value }) => {
+    const filteredCities = this.applyFilters(this.state.citiesList).filter(city =>
+      city.name.toLowerCase().includes(value.toLowerCase()) ||
+      city.country.toLowerCase().includes(value.toLowerCase())
+    );
+    this.setState({ filteredCities });
   };
+
+  onSuggestionsClearRequested = () => {
+    this.setState({ filteredCities: [] });
+  };
+
+  getSuggestionValue = suggestion => suggestion.name;
+
+  renderSuggestion = suggestion => (
+    <div>
+      {suggestion.name} ({suggestion.country})
+    </div>
+  );
 
   applyFilters = (cities) => {
     const { filters } = this.state;
@@ -168,29 +180,24 @@ class Home extends Component {
   };
 
   render() {
-    const { filteredCities, searchTerm, filters, sort, weatherData,errorMsg } = this.state;
+    const { filteredCities, searchTerm, filters, sort, weatherData, loading, errorMsg } = this.state;
+    const inputProps = {
+      placeholder: 'Search cities or countries...',
+      value: searchTerm,
+      onChange: this.onChangeSearch
+    };
+
     return (
       <div className="container">
         <h1>Cities Table</h1>
         <div className="search-container">
-          <Autocomplete
-            getItemValue={(item) => item.name}
-            items={filteredCities}
-            renderItem={(item, isHighlighted) => (
-              <div
-                key={item.name}
-                style={{
-                  background: isHighlighted ? '#eee' : '#fff',
-                  padding: '10px'
-                }}
-              >
-                {item.name} ({item.country})
-              </div>
-            )}
-            value={searchTerm}
-            onChange={this.onChangeSearch}
-            onSelect={this.onSelectFilter}
-            inputProps={{ placeholder: 'Search cities or countries...' }}
+          <Autosuggest
+            suggestions={filteredCities}
+            onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
+            onSuggestionsClearRequested={this.onSuggestionsClearRequested}
+            getSuggestionValue={this.getSuggestionValue}
+            renderSuggestion={this.renderSuggestion}
+            inputProps={inputProps}
           />
         </div>
         <div className="table-container">
@@ -249,9 +256,10 @@ class Home extends Component {
               {filteredCities.map((city, index) => (
                 <tr key={index}>
                   <td data-label="City Name">
-                    <a href={`/weather/${encodeURIComponent(city.name)}`} target="_blank" rel="noopener noreferrer">
+                  <a href={`/weather/${encodeURIComponent(city.name)}`} target="_blank" rel="noopener noreferrer">
                       {city.name}
                     </a>
+                    
                   </td>
                   <td data-label="Country">{city.country}</td>
                   <td data-label="Timezone">{city.timeZone}</td>
@@ -271,8 +279,8 @@ class Home extends Component {
             </tbody>
           </table>
         </div>
-        {this.state.loading && <p>Loading...</p>}
-        {errorMsg&&<p>{errorMsg}</p>}
+        {loading && <div className="spinner">Loading...</div>}
+        {errorMsg && <p className="error">{errorMsg}</p>}
       </div>
     );
   }
